@@ -72,7 +72,13 @@ public:
      * Configures the camera according to the software trigger mode.
      * @return true if all the configuration could be set up.
      */
-    virtual bool registerCameraConfiguration() = 0;
+    virtual bool registerSoftwareTriggerConfiguration() = 0;
+
+    /**
+     * Configures the camera according to the continuous acquisition mode.
+     * @return true if all the configuration could be set up.
+     */
+    virtual bool registerContinuousConfiguration() = 0;
 
     /**
      * Opens the desired camera, the communication starts from now on.

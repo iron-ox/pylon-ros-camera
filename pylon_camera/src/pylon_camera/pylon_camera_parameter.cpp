@@ -69,7 +69,14 @@ PylonCameraParameter::PylonCameraParameter() :
         inter_pkg_delay_(1000),
         startup_user_set_(""),
         shutter_mode_(SM_DEFAULT),
-        auto_flash_(false)
+        auto_flash_(false),
+        ptp_enable_(false),
+        ptp_allow_master_(false),
+        ptp_max_offset_ns_(1000),
+        ptp_offset_window_s_(2),
+        sync_free_run_(false),
+        sync_free_run_start_low_(0),
+        sync_free_run_start_high_(0)
 {}
 
 PylonCameraParameter::~PylonCameraParameter()
@@ -262,7 +269,16 @@ void PylonCameraParameter::readFromRosParameterServer(const ros::NodeHandle& nh)
     nh.param<bool>("auto_flash_line_2", auto_flash_line_2_, true);
     nh.param<bool>("auto_flash_line_3", auto_flash_line_3_, true);
 
-    ROS_WARN("Autoflash: %i, line2: %i , line3: %i ", auto_flash_, auto_flash_line_2_, auto_flash_line_3_);
+    ROS_INFO("Autoflash: %i, line2: %i , line3: %i ", auto_flash_, auto_flash_line_2_, auto_flash_line_3_);
+
+    nh.param<bool>("ptp_enable", ptp_enable_, ptp_enable_);
+    nh.param<bool>("ptp_allow_master", ptp_allow_master_, ptp_allow_master_);
+    nh.param<int>("ptp_max_offset_ns", ptp_max_offset_ns_, ptp_max_offset_ns_);
+    nh.param<int>("ptp_offset_window_s", ptp_offset_window_s_, ptp_offset_window_s_);
+    nh.param<bool>("sync_free_run", sync_free_run_, sync_free_run_);
+    nh.param<int>("sync_free_run_start_low", sync_free_run_start_low_, sync_free_run_start_low_);
+    nh.param<int>("sync_free_run_start_high", sync_free_run_start_high_, sync_free_run_start_high_);
+
     validateParameterSet(nh);
     return;
 }

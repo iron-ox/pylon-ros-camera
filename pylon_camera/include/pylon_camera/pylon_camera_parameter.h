@@ -119,6 +119,18 @@ public:
     void setCameraInfoURL(const ros::NodeHandle& nh,
                           const std::string& camera_info_url);
 
+
+    /**
+     * Getters for ptp and sync free run parameter server values
+     */
+    bool ptpEnabled() const { return ptp_enable_; };
+    bool ptpMasterAllowed() const { return ptp_allow_master_; }
+    int ptpMaxOffsetNs() const { return ptp_max_offset_ns_; }
+    int ptpOffsetWindowSecs() const { return ptp_offset_window_s_; }
+    bool syncFreeRunEnabled() const { return sync_free_run_; }
+    int syncFreeRunStartLow() const { return sync_free_run_start_low_; }
+    int syncFreeRunStartHigh() const { return sync_free_run_start_high_; }
+
 public:
     /** Binning factor to get downsampled images. It refers here to any camera
      * setting which combines rectangular neighborhoods of pixels into larger
@@ -348,6 +360,44 @@ protected:
      * 'bayer_gbrg8', 'bayer_rggb8' and 'yuv422'
      */
     std::string image_encoding_;
+
+      /**
+     * Enable PTP on the camera. Will block before capturing until PTP is
+     * connected and clock offset is below ptp_max_offset_ns_
+     */
+    bool ptp_enable_;
+
+    /**
+     * If true, camera can be a master clock. Otherwise will not proceed
+     * until camera becomes a slave clock.
+     */
+    bool ptp_allow_master_;
+
+    /**
+     * If ptp is enabled, capture will be blocked until master clock offset
+     * is below this threshold over ptp_offset_window_s_
+     */
+    int ptp_max_offset_ns_;
+
+    /**
+     * Master clock offset must be below ptp_max_offset_ns_ for this duration
+     */
+    int ptp_offset_window_s_;
+
+    /**
+     * Enable synchronous free run. PTP must be enabled as well
+     */
+    bool sync_free_run_;
+
+    /**
+     * Low bits for synchronous free run start offset
+     */
+    int sync_free_run_start_low_;
+
+    /**
+     * High bits for synchronous free run start offset
+     */
+    int sync_free_run_start_high_;
 };
 
 }  // namespace pylon_camera

@@ -201,7 +201,7 @@ bool PylonGigECamera::applyCamSpecificStartupSettings(const PylonCameraParameter
                 // Check if gamma is available, print range
                 if ( !GenApi::IsAvailable(cam_->Gamma) )
                 {
-                    ROS_WARN("Cam gamma not available, will keep the default (auto).");
+                    ROS_INFO("Cam gamma not available, will keep the default (auto).");
                 }
                 else
                 {
@@ -220,9 +220,6 @@ bool PylonGigECamera::applyCamSpecificStartupSettings(const PylonCameraParameter
                 // also in ubuntu settings -> network -> options -> MTU Size
                 // from 'automatic' to 3000 if card supports it
                 // Raspberry PI has MTU = 1500, max value for some cards: 9000
-                ROS_WARN("setting MTU");
-                cam_->GevSCPSPacketSize.SetValue(parameters.mtu_size_);
-                ROS_WARN("MTU Setted");
                 if (parameters.auto_flash_)
                 {
                     std::map<int, bool> flash_on_lines;
@@ -239,35 +236,135 @@ bool PylonGigECamera::applyCamSpecificStartupSettings(const PylonCameraParameter
                 // package size * n_cams + 5% overhead = inter package size
                 // int n_cams = 1;
                 // int inter_package_delay_in_ticks = n_cams * imageSize() * 1.05;
-                cam_->GevSCPD.SetValue(parameters.inter_pkg_delay_);
                 ROS_WARN("Default User Setting Loaded");
             }
         else if (parameters.startup_user_set_ == "UserSet1")
             {
                 cam_->UserSetSelector.SetValue(Basler_GigECameraParams::UserSetSelector_UserSet1);
                 cam_->UserSetLoad.Execute();
-                cam_->GevSCPSPacketSize.SetValue(parameters.mtu_size_);
                 ROS_WARN("User Set 1 Loaded");
             } 
         else if (parameters.startup_user_set_ == "UserSet2")
             {
                 cam_->UserSetSelector.SetValue(Basler_GigECameraParams::UserSetSelector_UserSet2);
                 cam_->UserSetLoad.Execute();
-                cam_->GevSCPSPacketSize.SetValue(parameters.mtu_size_);
                 ROS_WARN("User Set 2 Loaded");
             } 
         else if (parameters.startup_user_set_ == "UserSet3")
             {
                 cam_->UserSetSelector.SetValue(Basler_GigECameraParams::UserSetSelector_UserSet3);
                 cam_->UserSetLoad.Execute();
-                cam_->GevSCPSPacketSize.SetValue(parameters.mtu_size_);
                 ROS_WARN("User Set 3 Loaded");
             } 
         else if (parameters.startup_user_set_ == "CurrentSetting")
             {
-                cam_->GevSCPSPacketSize.SetValue(parameters.mtu_size_);
                 ROS_WARN("No User Set Is selected, Camera current setting will be used");
             }
+
+        ROS_INFO("Setting packet size to %d and packet delay to %d", parameters.mtu_size_, parameters.inter_pkg_delay_);
+        cam_->GevSCPSPacketSize.SetValue(parameters.mtu_size_);
+        cam_->GevSCPD.SetValue(parameters.inter_pkg_delay_);
+
+        if (parameters.ptpEnabled())
+        {
+            // TODO: Code below tries to block until clocks are synced, but it's not airtight.
+            // E.g. consider a case where a master clock is present, and we require 2 cameras
+            // to be slaves. Camera A could register as a master, then camera B could sync to
+            // it as a slave, letting camera B pass this code. Then, camera A syncs to the
+            // desired master clock, leaving the 2 cameras out of sync. This and other edge
+            // cases should resolve within a few seconds, but it's not ideal. One option could
+            // be to have camera nodes communicate between themselves, and all block until all
+            // conditions are satisfied simultaneously. Another option could be to pass in the
+            // desired master clock id, and wait until that master clock is synced to.
+            ROS_INFO("Enabling PTP");
+            cam_->GevIEEE1588.SetValue(true);
+            ROS_INFO("Waiting for PTP connection...");
+            ros::Rate r(1);
+            auto ptp_status = cam_->GevIEEE1588Status();
+            // Wait until status is either master or slave
+            while (ros::ok() &&
+                   ptp_status != Basler_GigECamera::GevIEEE1588Status_Master &&
+                   ptp_status != Basler_GigECamera::GevIEEE1588Status_Slave)
+            {
+                r.sleep();
+                ros::spinOnce();
+                ptp_status = cam_->GevIEEE1588Status();
+            }
+            if (ptp_status == Basler_GigECamera::GevIEEE1588Status_Master && !parameters.ptpMasterAllowed())
+            {
+                ROS_WARN("Camera %s is master clock, but ptp config requires slave. Ensure a master clock with higher priority is present. Continuing to wait for slave clock status...", deviceUserID().c_str());
+                while (ros::ok() && ptp_status != Basler_GigECamera::GevIEEE1588Status_Slave)
+                {
+                    r.sleep();
+                    ros::spinOnce();
+                    ptp_status = cam_->GevIEEE1588Status();
+                }
+            }
+            ROS_INFO("Camera %s connected as PTP %s", deviceUserID().c_str(), (ptp_status == Basler_GigECamera::GevIEEE1588Status_Slave) ? "slave" : "master");
+            if (ptp_status == Basler_GigECamera::GevIEEE1588Status_Slave)
+            {
+                // Wait until estimated master clock offset falls below threshold.
+                int max_offset_ns = parameters.ptpMaxOffsetNs();
+                int window_s = parameters.ptpOffsetWindowSecs();
+                ROS_INFO("Camera %s waiting for clock offset < %d ns over %d s...", deviceUserID().c_str(), max_offset_ns, window_s);
+                bool currently_below = false;
+                ros::Time below_start;
+                while (ros::ok())
+                {
+                    // Need to latch to get master clock offset
+                    cam_->GevIEEE1588DataSetLatch();
+                    if (std::abs(cam_->GevIEEE1588OffsetFromMaster()) < max_offset_ns)
+                    {
+                        if (!currently_below)
+                        {
+                            currently_below = true;
+                            below_start = ros::Time::now();
+                        }
+                        else if ((ros::Time::now() - below_start).toSec() >= window_s)
+                        {
+                            break;
+                        }
+                    }
+                    else
+                    {
+                        currently_below = false;
+                    }
+                    ros::spinOnce();
+                }
+                ROS_INFO("Camera %s (slave) PTP sync complete", deviceUserID().c_str());
+            }
+        }
+        else
+        {
+            cam_->GevIEEE1588.SetValue(false);
+        }
+        if (parameters.syncFreeRunEnabled())
+        {
+            // sync free run requires continuous acquisition mode
+            if ( !registerContinuousConfiguration() )
+            {
+                ROS_ERROR_STREAM("Error in registerContinuousConfiguration()");
+                return false;
+            }
+
+            // See https://docs.baslerweb.com/synchronous-free-run.html for info.
+            cam_->SyncFreeRunTimerTriggerRateAbs.SetValue(parameters.frameRate());
+            cam_->SyncFreeRunTimerStartTimeLow.SetValue(parameters.syncFreeRunStartLow());
+            cam_->SyncFreeRunTimerStartTimeHigh.SetValue(parameters.syncFreeRunStartHigh());
+            cam_->SyncFreeRunTimerUpdate.Execute();
+
+            // Disable frame triggers
+            cam_->TriggerSelector.SetValue(TriggerSelectorEnums::TriggerSelector_FrameStart);
+            cam_->TriggerMode.SetValue(TriggerModeEnums::TriggerMode_Off);
+
+            cam_->SyncFreeRunTimerEnable.SetValue(true);
+
+            ROS_INFO("Synchronous free run enabled with frame rate: %g, offsets %d / %d", parameters.frameRate(), parameters.syncFreeRunStartLow(), parameters.syncFreeRunStartHigh());
+        }
+        else
+        {
+            cam_->SyncFreeRunTimerEnable.SetValue(false);
+        }
     }
     catch ( const GenICam::GenericException &e )
     {
