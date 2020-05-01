@@ -64,13 +64,35 @@ PylonCameraImpl<CameraTraitT>::~PylonCameraImpl()
 }
 
 template <typename CameraTraitT>
-bool PylonCameraImpl<CameraTraitT>::registerCameraConfiguration()
+bool PylonCameraImpl<CameraTraitT>::registerSoftwareTriggerConfiguration()
 {
     try
     {
         cam_->RegisterConfiguration(new Pylon::CSoftwareTriggerConfiguration,
                                         Pylon::RegistrationMode_ReplaceAll,
                                         Pylon::Cleanup_Delete);
+        grab_strategy_ = Pylon::GrabStrategy_OneByOne;
+        return true;
+    }
+    catch ( const GenICam::GenericException &e )
+    {
+        ROS_ERROR_STREAM(e.GetDescription());
+        return false;
+    }
+}
+
+template <typename CameraTraitT>
+bool PylonCameraImpl<CameraTraitT>::registerContinuousConfiguration()
+{
+    try
+    {
+        cam_->RegisterConfiguration(new Pylon::CAcquireContinuousConfiguration,
+                                        Pylon::RegistrationMode_ReplaceAll,
+                                        Pylon::Cleanup_Delete);
+        // This codebase is built around software-triggered grabbing, and also
+        // only captures when subscribers are present. We thus use LatestImageOnly
+        // to avoid stale images in continuous capture mode.
+        grab_strategy_ = Pylon::GrabStrategy_LatestImageOnly;
         return true;
     }
     catch ( const GenICam::GenericException &e )
@@ -177,7 +199,7 @@ std::string PylonCameraImpl<CameraTraitT>::currentROSEncoding() const
         ROS_ERROR_STREAM("No ROS equivalent to GenApi encoding");
         cam_->StopGrabbing();
         setImageEncoding(gen_api_encoding);
-        cam_->StartGrabbing();
+        cam_->StartGrabbing(grab_strategy_);
         //return "NO_ENCODING";
     }
     return ros_encoding;
@@ -344,7 +366,7 @@ bool PylonCameraImpl<CameraTraitT>::startGrabbing(const PylonCameraParameter& pa
             return false;
         }
 
-        cam_->StartGrabbing();
+        cam_->StartGrabbing(grab_strategy_);
         user_output_selector_enums_ = detectAndCountNumUserOutputs();
         device_user_id_ = cam_->DeviceUserID.GetValue();
         img_rows_ = static_cast<size_t>(cam_->Height.GetValue());
@@ -823,7 +845,7 @@ bool PylonCameraImpl<CameraTraitT>::setBinningX(const size_t& target_binning_x,
             }
             cam_->BinningHorizontal.SetValue(binning_x_to_set);
             reached_binning_x = currentBinningX();
-            cam_->StartGrabbing();
+            cam_->StartGrabbing(grab_strategy_);
             img_cols_ = static_cast<size_t>(cam_->Width.GetValue());
             img_size_byte_ =  img_cols_ * img_rows_ * imagePixelDepth();
         }
@@ -870,7 +892,7 @@ bool PylonCameraImpl<CameraTraitT>::setBinningY(const size_t& target_binning_y,
             }
             cam_->BinningVertical.SetValue(binning_y_to_set);
             reached_binning_y = currentBinningY();
-            cam_->StartGrabbing();
+            cam_->StartGrabbing(grab_strategy_);
             img_rows_ = static_cast<size_t>(cam_->Height.GetValue());
             img_size_byte_ =  img_cols_ * img_rows_ * imagePixelDepth();
         }
@@ -2746,7 +2768,7 @@ std::string PylonCameraImpl<CameraTraitT>::grabbingStarting()
 {
     try
     {
-        cam_->StartGrabbing();
+        cam_->StartGrabbing(grab_strategy_);
         return "done";
 
     }

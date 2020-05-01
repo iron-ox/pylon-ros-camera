@@ -192,8 +192,10 @@ PylonCamera* PylonCamera::create(const std::string& device_user_id_to_open)
                             << device_user_id_to_open << ": "
                             << it->GetModelName());
                 PYLON_CAM_TYPE cam_type = detectPylonCamType(*it);
-                return createFromDevice(cam_type,
-                                        tl_factory.CreateDevice(*it));
+                PylonCamera* new_cam_ptr = createFromDevice(cam_type,
+                                                            tl_factory.CreateDevice(*it));
+                new_cam_ptr->device_user_id_ = device_user_id_to_open;
+                return new_cam_ptr;
             }
             else
             {

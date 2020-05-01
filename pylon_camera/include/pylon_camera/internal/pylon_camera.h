@@ -55,7 +55,9 @@ public:
 
     virtual ~PylonCameraImpl();
 
-    virtual bool registerCameraConfiguration();
+    virtual bool registerSoftwareTriggerConfiguration();
+
+    virtual bool registerContinuousConfiguration();
 
     virtual bool openCamera();
 
@@ -304,6 +306,9 @@ protected:
 
     virtual bool setupSequencer(const std::vector<float>& exposure_times,
                                 std::vector<float>& exposure_times_set);
+
+    // We want different frame replacement strategies depending on acquisition method
+    Pylon::EGrabStrategy grab_strategy_ = Pylon::GrabStrategy_OneByOne;
 };
 
 }  // namespace pylon_camera
